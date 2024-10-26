@@ -3,42 +3,6 @@ import matplotlib.pyplot as plt
 import streamlit as st
 from fpdf import FPDF
 from io import BytesIO
-import os
-
-# Función para guardar gráficos como imágenes en el sistema de archivos temporalmente
-def guardar_grafico(fig):
-    temp_filename = "temp_grafico.png"  # Nombre temporal
-    fig.savefig(temp_filename, format="png")
-    return temp_filename
-
-# Función para exportar la gráfica actual a PDF con su descripción
-def exportar_grafico_a_pdf(titulo, descripcion, figura):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-
-    # Título
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(200, 10, titulo, ln=True, align='C')
-    pdf.ln(10)
-
-    # Descripción
-    pdf.set_font('Arial', '', 12)
-    pdf.multi_cell(0, 10, descripcion)
-    pdf.ln(10)
-
-    # Guardar el gráfico en el PDF
-    imagen_grafico = guardar_grafico(figura)  # Guardamos la imagen temporalmente
-    pdf.image(imagen_grafico, x=10, y=None, w=170)  # Ajustar el tamaño de la imagen según sea necesario
-
-    # Guardar el archivo PDF
-    output_filename = 'reporte_asistencia_grafica.pdf'
-    pdf.output(output_filename)
-
-    # Eliminar el archivo temporal después de guardarlo en el PDF
-    os.remove(imagen_grafico)
-
-    return output_filename
 
 # Leer el archivo CSV
 leer_csv = pd.read_csv('horario_db.csv')
@@ -47,6 +11,42 @@ leer_csv = pd.read_csv('horario_db.csv')
 asistencia_cols = [col for col in leer_csv.columns if 'Asistencia' in col]
 profesor_col = 'Profesor'
 materia_col = 'Materia'
+
+# Función para guardar gráficos en un objeto BytesIO
+def guardar_grafico(fig):
+    img_buffer = BytesIO()
+    fig.savefig(img_buffer, format="png")
+    img_buffer.seek(0)
+    return img_buffer
+
+# Función para exportar el reporte a PDF y devolverlo como BytesIO
+def exportar_grafico_a_pdf(titulo, descripcion, figura):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    # Título del PDF
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(200, 10, titulo, ln=True, align='C')
+    pdf.ln(10)
+
+    # Descripción del PDF
+    pdf.set_font('Helvetica', '', 12)
+    pdf.multi_cell(0, 10, descripcion)
+    pdf.ln(10)
+
+    # Guardar la imagen del gráfico en BytesIO
+    imagen_grafico = guardar_grafico(figura)
+
+    # Añadir la imagen del gráfico al PDF
+    pdf.image(imagen_grafico, x=10, y=None, w=170)
+
+    # Guardar el PDF en BytesIO
+    pdf_buffer = BytesIO()
+    pdf.output(pdf_buffer)
+    pdf_buffer.seek(0)  # Colocar el cursor al inicio del archivo
+
+    return pdf_buffer
 
 # Función para filtrar solo las columnas de asistencia válidas (0 o 1, excluyendo NaN)
 def filtrar_columnas_llenas(df):
@@ -143,6 +143,10 @@ def estadisticas_globales(df):
     # Guardar el gráfico y la descripción en session_state
     st.session_state['grafico_actual'] = {"titulo": "Estadísticas Globales de Asistencia", "descripcion": descripcion, "figura": fig}
 
+# Inicializar st.session_state['grafico_actual'] si no existe
+if 'grafico_actual' not in st.session_state:
+    st.session_state['grafico_actual'] = {}
+
 # Función principal para generar reportes
 def reportes():
     st.markdown("# 📊 **Sistema de Reportes de Asistencia**")
@@ -166,7 +170,16 @@ def reportes():
         estadisticas_globales(leer_csv)
 
     # Botón para exportar la gráfica actual a PDF
-    if 'grafico_actual' in st.session_state and st.button("Exportar Gráfico Actual a PDF"):
+    if 'grafico_actual' in st.session_state and 'figura' in st.session_state['grafico_actual']:
         grafico_actual = st.session_state['grafico_actual']
-        filename = exportar_grafico_a_pdf(grafico_actual['titulo'], grafico_actual['descripcion'], grafico_actual['figura'])
-        st.success(f"PDF generado exitosamente: {filename}")
+        pdf_buffer = exportar_grafico_a_pdf(
+            grafico_actual['titulo'],
+            grafico_actual['descripcion'],
+            grafico_actual['figura']
+        )
+        st.download_button(
+            label="Descargar reporte en PDF",
+            data=pdf_buffer,
+            file_name="reporte_asistencia.pdf",
+            mime="application/pdf"
+        )
